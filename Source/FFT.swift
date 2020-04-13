@@ -9,26 +9,23 @@
 import Accelerate
 
 open class FFT {
-    public var windowSequence: vDSP.WindowSequence = .blackman {
+    public enum WindowSequence {
+        case hanningNormalized
+        case hanningDenormalized
+        case hamming
+        case blackman
+        case none
+    }
+
+    public var windowSequence: FFT.WindowSequence = .blackman {
         didSet {
             setupWindow()
         }
     }
-
-    public var useWindow: Bool = true {
-        didSet {
-            if !useWindow {
-                window = [Float](repeating: 1, count: n)
-            }
-        }
-    }
-
-    public var samples: Int = 0 {
-        didSet {
-            setup()
-        }
-    }
-
+    
+    public var smoothing: Float = 0.0
+    
+    private var samples: Int = 0
     private var n: Int = 0
     private var nHalf: Int = 0
     private var log2n: vDSP_Length = 0
@@ -39,20 +36,22 @@ open class FFT {
     private var realParts: [Float] = []
     private var imagParts: [Float] = []
     private var spectrum: [Float] = []
+    private var spectrumSmooth: [Float] = []
 
-    public init(samples: Int, windowSequence: vDSP.WindowSequence = .blackman) {
+    public init?(samples: Int, windowSequence: FFT.WindowSequence = .blackman, smoothing: Float = 0.0) {
+        let lg2 = logbf(Float(samples))
+        if remainderf(Float(samples), powf(2.0, lg2)) != 0 {
+            print("Number of samples is not a power of two: \(samples)")
+            return nil
+        }
+        
         self.samples = samples
         self.windowSequence = windowSequence
+        self.smoothing = smoothing
         setup()
     }
 
     private func setup() {
-        let lg2 = logbf(Float(samples))
-        if remainderf(Float(samples), powf(2.0, lg2)) != 0 {
-            print("Number of samples is not a power of two: \(samples)")
-            return
-        }
-
         n = samples
         nHalf = n / 2
         log2n = vDSP_Length(log2(Float(n)))
@@ -71,19 +70,27 @@ open class FFT {
         realParts = [Float](repeating: 0, count: nHalf)
         imagParts = [Float](repeating: 0, count: nHalf)
         spectrum = [Float](repeating: 0, count: nHalf)
+        spectrumSmooth = [Float](repeating: 0, count: nHalf)
         windowedSignal = [Float](repeating: 0, count: n)
         window = [Float](repeating: 1, count: n)
     }
 
+    
     private func setupWindow() {
-        if useWindow {
-            window = vDSP.window(ofType: Float.self, usingSequence: windowSequence, count: n, isHalfWindow: false)
-        }
-        else
-        {
+        switch windowSequence {
+        case .blackman:
+            vDSP_blkman_window(&window, vDSP_Length(n), 0)
+        case .hamming:
+            vDSP_hamm_window(&window, vDSP_Length(n), 0)
+        case .hanningDenormalized:
+            vDSP_hann_window(&window, vDSP_Length(n), Int32(vDSP_HANN_DENORM))
+        case .hanningNormalized:
+            vDSP_hann_window(&window, vDSP_Length(n), Int32(vDSP_HANN_NORM))
+        case .none:
             window = [Float](repeating: 1, count: n)
         }
     }
+
 
     public func forward(_ signal: UnsafeMutablePointer<Float>) {
         // Window Signal
@@ -93,39 +100,8 @@ open class FFT {
             }
         }
 
-        // Perform FFT
-        spectrum.withUnsafeMutableBufferPointer { specPtr in
-            realParts.withUnsafeMutableBufferPointer { realPtr in
-                imagParts.withUnsafeMutableBufferPointer { imagPtr in
-
-                    // Create a `DSPSplitComplex` to contain the signal.
-                    var complexSignal = DSPSplitComplex(realp: realPtr.baseAddress!,
-                                                        imagp: imagPtr.baseAddress!)
-
-                    // Convert to complex numbers
-                    windowedSignal.withUnsafeBytes {
-                        vDSP.convert(interleavedComplexVector: [DSPComplex]($0.bindMemory(to: DSPComplex.self)),
-                                     toSplitComplexVector: &complexSignal)
-                    }
-
-                    // Perform FFT
-                    fft.forward(input: complexSignal, output: &complexSignal)
-
-                    // Process signal square root of the absolute value of each element of imagParts.
-                    vDSP_zvmags(&complexSignal, 1, specPtr.baseAddress!, 1, vDSP_Length(nHalf))
-
-                    // vDSP_zvmagsD returns squares of the FFT magnitudes, so take the root here
-                    var len = Int32(nHalf)
-                    vvsqrtf(specPtr.baseAddress!, specPtr.baseAddress!, &len)
-
-                    // Scale to get into a good 0 - 1 range
-                    var scalar: [Float] = [2.0 / Float(nHalf)]
-                    vDSP_vsmul(specPtr.baseAddress!, 1, &scalar, specPtr.baseAddress!, 1, vDSP_Length(nHalf))
-                }
-            }
-        }
+        _forward()
     }
-
 
     public func forward(_ signal: [Float]) {
         // Window Signal
@@ -135,6 +111,10 @@ open class FFT {
             }
         }
 
+        _forward()
+    }
+
+    private func _forward() {
         // Perform FFT
         spectrum.withUnsafeMutableBufferPointer { specPtr in
             realParts.withUnsafeMutableBufferPointer { realPtr in
@@ -166,9 +146,21 @@ open class FFT {
                 }
             }
         }
+
+        if smoothing > 0.0 {
+            spectrum.withUnsafeMutableBufferPointer { specPtr in
+                spectrumSmooth.withUnsafeMutableBufferPointer { specSmoothPtr in
+                    vDSP_vsmul(specSmoothPtr.baseAddress!, 1, &smoothing, specSmoothPtr.baseAddress!, 1, vDSP_Length(nHalf))
+                    vDSP_vmaxmg(specPtr.baseAddress!, 1, specSmoothPtr.baseAddress!, 1, specSmoothPtr.baseAddress!, 1, vDSP_Length(nHalf))
+                }
+            }
+        }
     }
 
     public func getSpectrum() -> [Float] {
+        if smoothing > 0.0 {
+            return spectrumSmooth
+        }
         return spectrum
     }
 
