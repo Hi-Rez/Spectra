@@ -128,18 +128,19 @@ open class FFT {
                                      toSplitComplexVector: &complexSignal)
                     }
 
+                    let length = vDSP_Length(nHalf)
                     // Perform FFT
                     fft.forward(input: complexSignal, output: &complexSignal)
-
+                    
                     // Process signal square root of the absolute value of each element of imagParts.
-                    vDSP_zvmags(&complexSignal, 1, specPtr.baseAddress!, 1, vDSP_Length(nHalf))
+                    vDSP_zvmags(&complexSignal, 1, specPtr.baseAddress!, 1, length)
 
                     // vDSP_zvmagsD returns squares of the FFT magnitudes, so take the root here
                     var len = Int32(nHalf)
                     vvsqrtf(specPtr.baseAddress!, specPtr.baseAddress!, &len)
 
                     // Scale to get into a good 0 - 1 range
-                    var scalar: [Float] = [2.0 / Float(nHalf)]
+                    var scalar: [Float] = [8.0 / Float(nHalf)]
                     vDSP_vsmul(specPtr.baseAddress!, 1, &scalar, specPtr.baseAddress!, 1, vDSP_Length(nHalf))
                 }
             }
