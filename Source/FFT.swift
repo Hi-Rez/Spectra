@@ -22,9 +22,9 @@ open class FFT {
             setupWindow()
         }
     }
-    
+
     public var smoothing: Float = 0.0
-    
+
     private var samples: Int = 0
     private var n: Int = 0
     private var nHalf: Int = 0
@@ -44,7 +44,7 @@ open class FFT {
             print("Number of samples is not a power of two: \(samples)")
             return nil
         }
-        
+
         self.samples = samples
         self.windowSequence = windowSequence
         self.smoothing = smoothing
@@ -75,7 +75,6 @@ open class FFT {
         window = [Float](repeating: 1, count: n)
     }
 
-    
     private func setupWindow() {
         switch windowSequence {
         case .blackman:
@@ -90,7 +89,6 @@ open class FFT {
             window = [Float](repeating: 1, count: n)
         }
     }
-
 
     public func forward(_ signal: UnsafeMutablePointer<Float>) {
         // Window Signal
