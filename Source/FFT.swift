@@ -175,7 +175,6 @@ open class FFT {
         return window
     }
 
-    deinit {
-        print("Destroying FFT")
+    deinit {        
     }
 }
