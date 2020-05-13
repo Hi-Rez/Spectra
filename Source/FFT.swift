@@ -27,9 +27,10 @@ open class FFT {
 
     private var samples: Int = 0
     private var n: Int = 0
-    private var nHalf: Int = 0
+    private var nOver2: Int = 0
     private var log2n: vDSP_Length = 0
-    private var fft: vDSP.FFT<DSPSplitComplex>!
+
+    private var fftSetup: FFTSetup!
 
     private var window: [Float] = []
     private var windowedSignal: [Float] = []
@@ -53,24 +54,24 @@ open class FFT {
 
     private func setup() {
         n = samples
-        nHalf = n / 2
+        nOver2 = n / 2
         log2n = vDSP_Length(log2(Float(n)))
 
-        guard let fft = vDSP.FFT(log2n: log2n, radix: .radix2, ofType: DSPSplitComplex.self) else {
-            fatalError("Can't create FFT Setup")
+        guard let setup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2)) else {
+            fatalError("Failed to create FFT Setup")
         }
 
-        self.fft = fft
+        fftSetup = setup
 
         setupBuffers()
         setupWindow()
     }
 
     private func setupBuffers() {
-        realParts = [Float](repeating: 0, count: nHalf)
-        imagParts = [Float](repeating: 0, count: nHalf)
-        spectrum = [Float](repeating: 0, count: nHalf)
-        spectrumSmooth = [Float](repeating: 0, count: nHalf)
+        realParts = [Float](repeating: 0, count: nOver2)
+        imagParts = [Float](repeating: 0, count: nOver2)
+        spectrum = [Float](repeating: 0, count: nOver2)
+        spectrumSmooth = [Float](repeating: 0, count: nOver2)
         windowedSignal = [Float](repeating: 0, count: n)
         window = [Float](repeating: 1, count: n)
     }
@@ -113,35 +114,35 @@ open class FFT {
     }
 
     private func _forward() {
-        // Perform FFT
         spectrum.withUnsafeMutableBufferPointer { specPtr in
             realParts.withUnsafeMutableBufferPointer { realPtr in
                 imagParts.withUnsafeMutableBufferPointer { imagPtr in
+                    windowedSignal.withUnsafeMutableBufferPointer { winPtr in
+                        winPtr.baseAddress?.withMemoryRebound(to: DSPComplex.self, capacity: nOver2) { complexPtr in
+                            let n2 = vDSP_Length(nOver2)
 
-                    // Create a `DSPSplitComplex` to contain the signal.
-                    var complexSignal = DSPSplitComplex(realp: realPtr.baseAddress!,
-                                                        imagp: imagPtr.baseAddress!)
+                            // Create a DSPSplitComplex to contain the signal.
+                            var complexSignal = DSPSplitComplex(realp: realPtr.baseAddress!,
+                                                                imagp: imagPtr.baseAddress!)
 
-                    // Convert to complex numbers
-                    windowedSignal.withUnsafeBytes {
-                        vDSP.convert(interleavedComplexVector: [DSPComplex]($0.bindMemory(to: DSPComplex.self)),
-                                     toSplitComplexVector: &complexSignal)
+                            // Convert complex to split complex signal
+                            vDSP_ctoz(complexPtr, 2, &complexSignal, 1, n2)
+
+                            // Forward FFT
+                            vDSP_fft_zrip(fftSetup, &complexSignal, 1, log2n, FFTDirection(FFT_FORWARD))
+
+                            // Process signal square root of the absolute value of each element of imagParts.
+                            vDSP_zvmags(&complexSignal, 1, specPtr.baseAddress!, 1, n2)
+
+                            // vDSP_zvmagsD returns squares of the FFT magnitudes, so take the root here
+                            var len = Int32(nOver2)
+                            vvsqrtf(specPtr.baseAddress!, specPtr.baseAddress!, &len)
+
+                            // Scale to get into a good 0 - 1 range
+                            var scalar: [Float] = [8.0 / Float(nOver2)]
+                            vDSP_vsmul(specPtr.baseAddress!, 1, &scalar, specPtr.baseAddress!, 1, n2)
+                        }
                     }
-
-                    let length = vDSP_Length(nHalf)
-                    // Perform FFT
-                    fft.forward(input: complexSignal, output: &complexSignal)
-                    
-                    // Process signal square root of the absolute value of each element of imagParts.
-                    vDSP_zvmags(&complexSignal, 1, specPtr.baseAddress!, 1, length)
-
-                    // vDSP_zvmagsD returns squares of the FFT magnitudes, so take the root here
-                    var len = Int32(nHalf)
-                    vvsqrtf(specPtr.baseAddress!, specPtr.baseAddress!, &len)
-
-                    // Scale to get into a good 0 - 1 range
-                    var scalar: [Float] = [8.0 / Float(nHalf)]
-                    vDSP_vsmul(specPtr.baseAddress!, 1, &scalar, specPtr.baseAddress!, 1, vDSP_Length(nHalf))
                 }
             }
         }
@@ -149,8 +150,9 @@ open class FFT {
         if smoothing > 0.0 {
             spectrum.withUnsafeMutableBufferPointer { specPtr in
                 spectrumSmooth.withUnsafeMutableBufferPointer { specSmoothPtr in
-                    vDSP_vsmul(specSmoothPtr.baseAddress!, 1, &smoothing, specSmoothPtr.baseAddress!, 1, vDSP_Length(nHalf))
-                    vDSP_vmaxmg(specPtr.baseAddress!, 1, specSmoothPtr.baseAddress!, 1, specSmoothPtr.baseAddress!, 1, vDSP_Length(nHalf))
+                    let n2 = vDSP_Length(nOver2)
+                    vDSP_vsmul(specSmoothPtr.baseAddress!, 1, &smoothing, specSmoothPtr.baseAddress!, 1, n2)
+                    vDSP_vmaxmg(specPtr.baseAddress!, 1, specSmoothPtr.baseAddress!, 1, specSmoothPtr.baseAddress!, 1, n2)
                 }
             }
         }
@@ -175,6 +177,5 @@ open class FFT {
         return window
     }
 
-    deinit {        
-    }
+    deinit {}
 }

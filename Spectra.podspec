@@ -11,9 +11,9 @@ Pod::Spec.new do |spec|
   spec.social_media_url       = "https://twitter.com/rezaali"
   spec.source                 = { :git => "https://github.com/Hi-Rez/Spectra.git", :tag => spec.version.to_s }
 
-  spec.osx.deployment_target  = "10.15"
-  spec.ios.deployment_target  = "13.1"
-  spec.tvos.deployment_target = "13.1"
+  spec.osx.deployment_target  = "10.10"
+  spec.ios.deployment_target  = "4.0"
+  spec.tvos.deployment_target = "9.0"
 
   spec.source_files           = "Source/*.h", "Source/**/*.{h,m,swift}"
   spec.frameworks             = "Accelerate"
