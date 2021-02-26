@@ -1,6 +1,6 @@
 Pod::Spec.new do |spec|
   spec.name                   = "Spectra"
-  spec.version                = "0.0.1"
+  spec.version                = "0.0.2"
   spec.summary                = "Spectra helps to analyze a signal and get it spectrum via Apple's Accelerate FFT functions"
   spec.description            = <<-DESC
   Spectra helps to analyze a signal and get it FFT spectrum via Apple's Accelerate framework
@@ -12,7 +12,7 @@ Pod::Spec.new do |spec|
   spec.source                 = { :git => "https://github.com/Hi-Rez/Spectra.git", :tag => spec.version.to_s }
 
   spec.osx.deployment_target  = "10.10"
-  spec.ios.deployment_target  = "4.0"
+  spec.ios.deployment_target  = "8.0"
   spec.tvos.deployment_target = "9.0"
 
   spec.source_files           = "Source/*.h", "Source/**/*.{h,m,swift}"
